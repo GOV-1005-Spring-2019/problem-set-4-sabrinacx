@@ -1,0 +1,152 @@
+---
+title: "ps_4"
+author: "Sabrina Chok"
+date: "February 26, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse) #basic necessity  
+library(readxl) #read excel files
+library(ggplot2) #create graphs from data
+library(devtools) #make nice looking table
+library(gt)
+
+```
+
+```{r, echo = FALSE, include=FALSE}
+#reads csv file and puts dataset into a variable
+x <- read_csv("ps_4_elections-poll-nc09-3.csv") 
+```
+
+# Question 1
+
+```{r, echo = FALSE}
+#find # of respondents who supported the Democratic candidate.
+ml1 <- x %>% 
+  filter(response == "Dem") %>% #filters for responses marked as Democratic
+  count() #counts number of responses
+```
+
+There were `r ml1` respondents who supported the Democratic candidate.
+
+```{r, echo = FALSE}
+#find difference between the # of respondents who favored the Republican candidate and those who were Undecided.
+ml2 <- x %>% 
+  count(response) %>% #counts number of responses for each party
+  spread(response, n) %>% #spreads parties across columns for easy arithmetic in next step
+  mutate(diffrep_und = Rep - Und) #create variable with difference between republican and undecided
+```
+
+There were `r ml2$diffrep_und` more respondents who favored the Republican candidate than who were Undecided.
+
+```{r, echo = FALSE}
+#find # of individuals with different values in the two gender variables (gender and gender_combined)
+ml3 <- x %>% 
+  select(gender, gender_combined) %>% #select columns with gender information
+  filter(gender != gender_combined) %>% #filter out rows in which values in two columns are different
+  count() #count the number of rows to find answer
+```
+
+There are two gender variables (gender and gender_combined). There are `r ml3` individuals for whom these variables have different values.
+
+```{r, echo = FALSE}
+#There are X respondents listed as “White” under race_eth who are not listed as “White” under file_race_black.
+ml4 <- x %>% 
+  select(file_race_black, race_eth) %>% #select columns with race information
+  filter(race_eth == "White") %>% #filter out respondents listed as "white" under race_eth
+  filter(file_race_black != race_eth) %>% #filter out rows with with different values between two columns
+  count() #count total number of rows to find answer
+
+```
+
+There are `r ml4` respondents listed as “White” under race_eth who are not listed as “White” under file_race_black.
+
+```{r, echo = FALSE}
+#The first response of Dem came X minutes (rounded to the nearest minute) before the first response of Rep.
+ml5 <- x %>% 
+  select(response, timestamp) %>% #select columns with party and timestamp information
+  filter(response %in% c("Dem", "Rep")) %>% #filter out democrat and republican responses
+  group_by(response) %>% #group data by response 
+  summarize(firstresp = min(timestamp)) #find earliest timestamp for each response
+
+#find difference between first dem and rep response, takes out numeric part of output, rounds it to nearest whole number
+a <- round(as.numeric(ml5[2,2] - ml5[1,2]), digit = 0)
+```
+
+The first response of Dem came `r a` minutes (rounded to the nearest minute) before the first response of Rep.
+
+# Question 2
+```{r, echo = FALSE}
+table <- x %>% 
+  select(response, race_eth, final_weight) %>% #select response, race, and response columns
+  filter(race_eth != "[DO NOT READ] Don't know/Refused") %>%  #filter out unnecessary data
+  mutate(race_eth = fct_relevel(race_eth, "White", "Black", "Hispanic", "Asian", "Other")) %>% #reorder ethnicities to match the desired table
+  group_by(race_eth, response) %>% #group by race and response
+  summarize(total = sum(final_weight)) %>% #create variable, total, which sums up groups based on final weights
+  spread(key = response, value = total, fill = 0) %>% #spread data by response and total number of respondents
+  mutate(all = Dem + Rep + Und +`3`) %>% #create new column that sums total number of respondents
+  mutate(Dem = Dem / all) %>% #divides individual values on table by total to find ratios
+  mutate(Rep = Rep / all) %>% 
+  mutate(Und = Und / all) %>% 
+  select(-all, -`3`) %>% #hide columns with data not necessary for final table
+  ungroup() #ungroup data 
+
+gt(table) %>% 
+  #add title and subtitle
+  tab_header(
+    title = "2018 North Carolina's 9th Congressional District Polling Data", 
+    subtitle = "New York Times Upshot/Siena College 2018 live polls") %>% 
+  #rename columns
+  cols_label(
+      race_eth = "",
+      Dem = "DEM.",
+      Rep = "REP.",
+      Und = "UND.") %>% 
+  #change numbers in table to percents
+  fmt_percent(columns = vars(Dem, Rep, Und), decimal = 0) %>% 
+  #turns missing values into dashes
+  na_if(0) %>% 
+  fmt_missing(columns = 4)
+```
+
+
+# Question 3
+```{r, echo = FALSE}
+x %>% 
+  select(educ, final_weight) %>% #select education and final weight data
+  filter(educ != "[DO NOT READ] Refused") %>% #filter out irrelevant data
+  mutate(educ = fct_relevel(educ, "Grade school", "High school", "Some college or trade school", 
+                            "Bachelors' degree", "Graduate or Professional Degree")) %>% #reorder education to match the desired table
+  #create violin plot with jitters to match the actual graph; varied alpha, width, and size until desired aesthetic appearance
+  ggplot(aes(x = educ, y = final_weight)) + geom_violin() + geom_jitter(alpha = .5, width = .2, size = .9) + coord_flip() +
+  #add title, subtitle, caption, and graph axis labels
+  labs(title = "More Educated Matter Less in North Carolina 9th",
+       subtitle = "Poll gives more weight to people who are less likely to participate in polls", 
+       caption = "New York Times Upshot/Siena College 2018 live polls") +
+       xlab(NULL) +
+       ylab("Weight Given to Respondent in Calculating Poll Results")
+```
+
+# Question 4
+```{r, echo = FALSE}
+
+#create facet of bar graphs that compare respondent gender differences across parties in NC 9th
+x %>% 
+  filter(partyid != "[DO NOT READ] Refused", partyid != "or as a member of another political party") %>% #filter out undesired data to focus only on dems, rep, and independents
+  select(gender, partyid) %>% #select gender and party identification of respondents
+  group_by(partyid, gender) %>% #group by party identification and gender
+  count() %>% #count number of respondents for each set of party and gender
+  #create bar plot with gender on x axis, faceted by party identification
+  ggplot(aes(x = gender, y = n, fill = gender)) + geom_col() + facet_grid(~partyid)+ 
+  #labeled plot with appropriate title and caption; left out legend and axis labels for aesthetic purposes (but also they weren't necessary to understand the graph)
+  labs(title = "Party Identification by Gender in North Carolina 9th",
+       caption = "New York Times Upshot/Siena College 2018 live polls") +
+  xlab(NULL) +
+  ylab(NULL) +
+  theme(legend.position = 'none')
+```
+
+#Colleagues
+Jenny Li, Henry Zhu, Neil Khurana, Albert Shin, Mike Silva 
